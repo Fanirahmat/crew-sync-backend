@@ -1,0 +1,1151 @@
+openapi: 3.0.3
+info:
+  title: CrewSync API Documentation
+  description: |
+    RESTful API and Notification Service for **CrewSync** — Event & Catering Field Crew Management.
+    
+    ### Key Features:
+    * **Multi-Tenancy:** Isolated data access strictly partitioned by `organizationId`.
+    * **Direct Credential Auth:** Stateless JWT Bearer token authentication.
+    * **Client-Side Geofence:** Zero-server spatial evaluation with venue coordinates & radius metadata.
+    * **Dual-Method Attendance:** Biometric verification tokens and Photo selfie uploads.
+    * **Real-time Rundown Cue:** Realtime state updates broadcast to crew members via FCM topics.
+    * **Logistics Checklists:** Load-in, Load-out, and condition verification with damage evidence photos.
+  version: 1.0.0
+  contact:
+    name: CrewSync Engineering
+    email: dev@crewsync.local
+
+servers:
+  - url: http://localhost:5001
+    description: Local Development Server
+  - url: https://api.crewsync.id
+    description: Production Server
+
+tags:
+  - name: System
+    description: Health check and service status
+  - name: Auth
+    description: Registration, direct credential login, and device FCM tokens
+  - name: Events
+    description: Event master data, venue spatial coordinates, and crew assignment
+  - name: Rundown
+    description: Rundown items, bulk reordering, status transitions, and FCM broadcasting
+  - name: Attendance
+    description: Field attendance tracking (Biometric & Photo upload with geofence verification)
+  - name: Logistics
+    description: Load-in & load-out asset checklists, physical verification, and condition tracking
+
+paths:
+  /api/v1/health:
+    get:
+      tags: [System]
+      summary: Health check endpoint
+      description: Returns the health status and current timestamp of the API service.
+      responses:
+        '200':
+          description: Service is healthy and operational
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: ok
+                  service:
+                    type: string
+                    example: CrewSync API
+                  timestamp:
+                    type: string
+                    format: date-time
+
+  /api/v1/auth/register:
+    post:
+      tags: [Auth]
+      summary: Register organization and owner account
+      description: Creates a new vendor organization tenant and registers the owner user with direct credentials.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RegisterRequest'
+      responses:
+        '201':
+          description: Registration successful
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthSuccessResponse'
+        '409':
+          description: Phone number or email already registered
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '422':
+          description: Validation error
+
+  /api/v1/auth/login:
+    post:
+      tags: [Auth]
+      summary: Login with direct credentials
+      description: Authenticates user by phone number or email and password, returning a JWT token.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LoginRequest'
+      responses:
+        '200':
+          description: Login successful
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthSuccessResponse'
+        '401':
+          description: Invalid credentials
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /api/v1/auth/fcm-token:
+    post:
+      tags: [Auth]
+      summary: Register user device FCM token
+      description: Registers or updates the mobile device token used for direct push notifications and event topic broadcasts.
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/FcmTokenRequest'
+      responses:
+        '200':
+          description: Device token registered successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  data:
+                    type: object
+                    properties:
+                      id:
+                        type: string
+                        format: uuid
+                      platform:
+                        type: string
+                        example: android
+                      updatedAt:
+                        type: string
+                        format: date-time
+
+  /api/v1/events:
+    get:
+      tags: [Events]
+      summary: List events for current organization
+      description: Returns all events belonging to the authenticated user's organization.
+      security:
+        - BearerAuth: []
+      responses:
+        '200':
+          description: List of events
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Event'
+    post:
+      tags: [Events]
+      summary: Create a new event
+      description: Creates an event with venue spatial coordinates and geofence radius. Authorized for OWNER, PLANNER, COORDINATOR.
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateEventRequest'
+      responses:
+        '201':
+          description: Event created successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  data:
+                    $ref: '#/components/schemas/Event'
+
+  /api/v1/events/{id}:
+    get:
+      tags: [Events]
+      summary: Get event details with spatial geofence parameters
+      description: Returns full event details including venue coordinates and geofence radius for client-side distance evaluation.
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Event details
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  data:
+                    $ref: '#/components/schemas/Event'
+        '404':
+          description: Event not found
+
+  /api/v1/events/{id}/crews:
+    get:
+      tags: [Events]
+      summary: List crews assigned to an event
+      description: Returns all crew members assigned to the event with their shifts and assigned roles.
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: List of assigned crews
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/EventCrew'
+    post:
+      tags: [Events]
+      summary: Assign a crew member to an event
+      description: Assigns a crew member to an event with role, shift hours, and fee. Authorized for OWNER, PLANNER, COORDINATOR.
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AssignCrewRequest'
+      responses:
+        '201':
+          description: Crew assigned successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  data:
+                    $ref: '#/components/schemas/EventCrew'
+
+  /api/v1/events/{id}/rundown:
+    get:
+      tags: [Rundown]
+      summary: Get rundown items for an event
+      description: Returns all rundown items sorted by orderIndex.
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Rundown items retrieved
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/RundownItem'
+    post:
+      tags: [Rundown]
+      summary: Add item to event rundown
+      description: Adds a new schedule item to the event rundown.
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateRundownItemRequest'
+      responses:
+        '201':
+          description: Rundown item created
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  data:
+                    $ref: '#/components/schemas/RundownItem'
+
+  /api/v1/events/{id}/rundown/reorder:
+    patch:
+      tags: [Rundown]
+      summary: Bulk reorder rundown items
+      description: Updates orderIndex across multiple rundown items in a single transaction.
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ReorderRundownRequest'
+      responses:
+        '200':
+          description: Items reordered successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/RundownItem'
+
+  /api/v1/events/{id}/rundown/{itemId}/status:
+    patch:
+      tags: [Rundown]
+      summary: Update rundown item status and trigger FCM cue broadcast
+      description: |
+        Updates item status (`PENDING`, `ACTIVE`, `COMPLETED`, `SKIPPED`).
+        When transitioned to `ACTIVE`, automatically sets `actualStartedAt` and broadcasts an FCM topic notification to `event_{eventId}`.
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - name: itemId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [status]
+              properties:
+                status:
+                  type: string
+                  enum: [PENDING, ACTIVE, COMPLETED, SKIPPED]
+                  example: ACTIVE
+      responses:
+        '200':
+          description: Status updated and broadcast sent
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  data:
+                    $ref: '#/components/schemas/RundownItem'
+
+  /api/v1/events/{id}/attendances:
+    get:
+      tags: [Attendance]
+      summary: Get event attendance records
+      description: Returns attendance logs for monitoring crew check-ins and check-outs.
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: List of attendances
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/CrewAttendance'
+    post:
+      tags: [Attendance]
+      summary: Submit crew attendance (Biometric or Photo with client geofence)
+      description: |
+        Records CHECK_IN or CHECK_OUT.
+        Supports dual methods:
+        * `BIOMETRIC`: Submits `biometricTokenRef` without photo.
+        * `PHOTO`: Requires selfie image attachment via multipart/form-data.
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/AttendanceSubmission'
+      responses:
+        '201':
+          description: Attendance recorded successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  message:
+                    type: string
+                    example: Presensi CHECK_IN berhasil dicatat.
+                  data:
+                    $ref: '#/components/schemas/CrewAttendance'
+        '400':
+          description: Missing required fields or photo file
+        '403':
+          description: User is not assigned to this event
+
+  /api/v1/events/{id}/checklists:
+    get:
+      tags: [Logistics]
+      summary: Get all checklists for an event
+      description: Retrieves logistics checklists with all item details and verification statuses.
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: List of checklists
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/LogisticsChecklist'
+    post:
+      tags: [Logistics]
+      summary: Create a logistics checklist
+      description: Creates a checklist for load-in, load-out, or post-event stage with initial inventory items.
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateChecklistRequest'
+      responses:
+        '201':
+          description: Checklist created
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  data:
+                    $ref: '#/components/schemas/LogisticsChecklist'
+
+  /api/v1/events/{id}/checklists/{checklistId}/items:
+    post:
+      tags: [Logistics]
+      summary: Add item to a checklist
+      description: Adds a single inventory asset item to an existing logistics checklist.
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - name: checklistId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AddChecklistItemRequest'
+      responses:
+        '201':
+          description: Item added successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  data:
+                    $ref: '#/components/schemas/ChecklistItem'
+
+  /api/v1/checklists/items/{itemId}/verify:
+    patch:
+      tags: [Logistics]
+      summary: Verify physical condition and quantity of checklist item
+      description: Updates physical quantity, condition (`GOOD`, `DAMAGED`, `MISSING`), and optional proof photo for damaged assets.
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: itemId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [quantityActual, condition]
+              properties:
+                quantityActual:
+                  type: integer
+                  example: 4
+                condition:
+                  type: string
+                  enum: [GOOD, DAMAGED, MISSING]
+                  example: GOOD
+                notes:
+                  type: string
+                  example: Kabel diperiksa dan berfungsi baik.
+                proofImage:
+                  type: string
+                  format: binary
+                  description: Optional photo evidence of asset condition
+      responses:
+        '200':
+          description: Verification recorded
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  data:
+                    $ref: '#/components/schemas/ChecklistItem'
+
+  /api/v1/checklists/items/{itemId}:
+    delete:
+      tags: [Logistics]
+      summary: Delete checklist item
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: itemId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Item deleted
+
+  /api/v1/checklists/{checklistId}:
+    delete:
+      tags: [Logistics]
+      summary: Delete checklist
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: checklistId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Checklist deleted
+
+components:
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: Provide JWT Bearer token obtained from `/api/v1/auth/login` or `/api/v1/auth/register`.
+
+  schemas:
+    RegisterRequest:
+      type: object
+      required: [organizationName, fullName, phoneNumber, password]
+      properties:
+        organizationName:
+          type: string
+          example: Artha Wedding & Event Planner
+        fullName:
+          type: string
+          example: Budi Pratama
+        phoneNumber:
+          type: string
+          example: '081234567890'
+        email:
+          type: string
+          format: email
+          example: owner@arthaworganizer.com
+        password:
+          type: string
+          format: password
+          example: password123
+
+    LoginRequest:
+      type: object
+      required: [identifier, password]
+      properties:
+        identifier:
+          type: string
+          description: Phone number or email address
+          example: '081234567890'
+        password:
+          type: string
+          format: password
+          example: password123
+
+    AuthSuccessResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+          example: true
+        data:
+          type: object
+          properties:
+            token:
+              type: string
+              example: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
+            user:
+              type: object
+              properties:
+                id:
+                  type: string
+                  format: uuid
+                fullName:
+                  type: string
+                  example: Budi Pratama
+                role:
+                  type: string
+                  example: PLANNER
+                organizationId:
+                  type: string
+                  format: uuid
+                phoneNumber:
+                  type: string
+                  example: '081234567890'
+                email:
+                  type: string
+                  example: planner@arthaworganizer.com
+
+    FcmTokenRequest:
+      type: object
+      required: [fcmToken]
+      properties:
+        fcmToken:
+          type: string
+          example: fcm_token_device_abc123
+        platform:
+          type: string
+          enum: [android, ios, web]
+          example: android
+
+    CreateEventRequest:
+      type: object
+      required: [title, eventDate, venueName, venueLat, venueLng]
+      properties:
+        title:
+          type: string
+          example: Resepsi Pernikahan Galih & Ratna
+        category:
+          type: string
+          example: Wedding
+        eventDate:
+          type: string
+          format: date-time
+          example: '2026-10-15T09:00:00.000Z'
+        venueName:
+          type: string
+          example: Balai Kartini Exhibition Hall, Jakarta
+        venueLat:
+          type: number
+          format: float
+          example: -6.23612
+        venueLng:
+          type: number
+          format: float
+          example: 106.82841
+        geofenceRadiusMeters:
+          type: integer
+          default: 100
+          example: 150
+        status:
+          type: string
+          enum: [DRAFT, PUBLISHED, ONGOING, COMPLETED, CANCELLED]
+          default: DRAFT
+
+    Event:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        organizationId:
+          type: string
+          format: uuid
+        title:
+          type: string
+        category:
+          type: string
+        eventDate:
+          type: string
+          format: date-time
+        venueName:
+          type: string
+        venueLat:
+          type: number
+        venueLng:
+          type: number
+        geofenceRadiusMeters:
+          type: integer
+        status:
+          type: string
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+
+    AssignCrewRequest:
+      type: object
+      required: [userId, assignedRole]
+      properties:
+        userId:
+          type: string
+          format: uuid
+        assignedRole:
+          type: string
+          example: Stage Coordinator
+        shiftStart:
+          type: string
+          format: date-time
+        shiftEnd:
+          type: string
+          format: date-time
+        feeAmount:
+          type: number
+          example: 350000
+
+    EventCrew:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        eventId:
+          type: string
+          format: uuid
+        userId:
+          type: string
+          format: uuid
+        assignedRole:
+          type: string
+        shiftStart:
+          type: string
+          format: date-time
+        shiftEnd:
+          type: string
+          format: date-time
+        feeAmount:
+          type: number
+        user:
+          type: object
+          properties:
+            id:
+              type: string
+              format: uuid
+            fullName:
+              type: string
+            phoneNumber:
+              type: string
+            role:
+              type: string
+
+    CreateRundownItemRequest:
+      type: object
+      required: [title, startTime, endTime]
+      properties:
+        title:
+          type: string
+          example: Akad Nikah / Ijab Qabul
+        description:
+          type: string
+          example: Prosesi ijab kabul di pelaminan utama.
+        locationSection:
+          type: string
+          example: Main Stage
+        startTime:
+          type: string
+          format: date-time
+        endTime:
+          type: string
+          format: date-time
+        picUserId:
+          type: string
+          format: uuid
+        orderIndex:
+          type: integer
+
+    RundownItem:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        eventId:
+          type: string
+          format: uuid
+        orderIndex:
+          type: integer
+        title:
+          type: string
+        description:
+          type: string
+        locationSection:
+          type: string
+        picUserId:
+          type: string
+          format: uuid
+        status:
+          type: string
+          enum: [PENDING, ACTIVE, COMPLETED, SKIPPED]
+        actualStartedAt:
+          type: string
+          format: date-time
+        actualEndedAt:
+          type: string
+          format: date-time
+
+    ReorderRundownRequest:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          items:
+            type: object
+            required: [id, orderIndex]
+            properties:
+              id:
+                type: string
+                format: uuid
+              orderIndex:
+                type: integer
+
+    AttendanceSubmission:
+      type: object
+      required: [type, method, clientLat, clientLng, clientDistanceMeters, isWithinGeofence]
+      properties:
+        type:
+          type: string
+          enum: [CHECK_IN, CHECK_OUT]
+          example: CHECK_IN
+        method:
+          type: string
+          enum: [BIOMETRIC, PHOTO]
+          example: BIOMETRIC
+        clientLat:
+          type: number
+          example: -6.23612
+        clientLng:
+          type: number
+          example: 106.82841
+        clientDistanceMeters:
+          type: integer
+          example: 8
+        isWithinGeofence:
+          type: boolean
+          example: true
+        biometricTokenRef:
+          type: string
+          description: Required if method is BIOMETRIC
+          example: bio_auth_signature_123
+        photo:
+          type: string
+          format: binary
+          description: Required if method is PHOTO
+        notes:
+          type: string
+
+    CrewAttendance:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        eventCrewId:
+          type: string
+          format: uuid
+        type:
+          type: string
+          enum: [CHECK_IN, CHECK_OUT]
+        method:
+          type: string
+          enum: [BIOMETRIC, PHOTO]
+        recordedAt:
+          type: string
+          format: date-time
+        clientLat:
+          type: number
+        clientLng:
+          type: number
+        clientDistanceMeters:
+          type: integer
+        isWithinGeofence:
+          type: boolean
+        biometricTokenRef:
+          type: string
+        photoUrl:
+          type: string
+        notes:
+          type: string
+
+    CreateChecklistRequest:
+      type: object
+      required: [name]
+      properties:
+        name:
+          type: string
+          example: Peralatan Audio Visual & Sound System
+        stage:
+          type: string
+          enum: [LOAD_IN, LOAD_OUT, POST_EVENT]
+          default: LOAD_IN
+        items:
+          type: array
+          items:
+            type: object
+            required: [itemName, quantityExpected]
+            properties:
+              itemName:
+                type: string
+                example: Wireless Mic Sennheiser G4
+              quantityExpected:
+                type: integer
+                example: 4
+
+    AddChecklistItemRequest:
+      type: object
+      required: [itemName, quantityExpected]
+      properties:
+        itemName:
+          type: string
+          example: Walkie Talkie Baofeng UV-5R
+        quantityExpected:
+          type: integer
+          example: 10
+
+    LogisticsChecklist:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        eventId:
+          type: string
+          format: uuid
+        name:
+          type: string
+        stage:
+          type: string
+          enum: [LOAD_IN, LOAD_OUT, POST_EVENT]
+        createdAt:
+          type: string
+          format: date-time
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/ChecklistItem'
+
+    ChecklistItem:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        checklistId:
+          type: string
+          format: uuid
+        itemName:
+          type: string
+        quantityExpected:
+          type: integer
+        quantityActual:
+          type: integer
+        condition:
+          type: string
+          enum: [GOOD, DAMAGED, MISSING]
+        verifiedByUserId:
+          type: string
+          format: uuid
+        proofImageUrl:
+          type: string
+        notes:
+          type: string
+        verifiedAt:
+          type: string
+          format: date-time
+
+    ErrorResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+          example: false
+        error:
+          type: object
+          properties:
+            code:
+              type: string
+              example: UNAUTHORIZED
+            message:
+              type: string
+              example: Invalid credentials
+            requestId:
+              type: string
+              example: req_1791986848100
