@@ -36,10 +36,17 @@ async function startTunnel() {
     console.log('================================================================');
     console.log('\nTekan Ctrl+C untuk menghentikan tunnel.\n');
 
-    // Keep process alive and handle graceful shutdown
+    // Keep event loop active indefinitely until SIGINT / SIGTERM
+    const keepAlive = setInterval(() => {}, 1000 * 60 * 60);
+
     const cleanup = async () => {
       console.log('\n🛑 Closing ngrok tunnel...');
-      await listener.close();
+      clearInterval(keepAlive);
+      try {
+        await listener.close();
+      } catch {
+        // ignore error on close
+      }
       console.log('✅ ngrok tunnel closed.');
       process.exit(0);
     };

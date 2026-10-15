@@ -29,6 +29,21 @@ export const createApp = (): Application => {
   // Swagger Documentation UI & Spec Endpoints
   setupSwagger(app);
 
+  // Root redirect & service info
+  app.get('/', (req, res) => {
+    if (req.accepts('html')) {
+      return res.redirect('/api/docs');
+    }
+    return res.status(200).json({
+      name: 'CrewSync API',
+      version: '1.0.0',
+      documentation: '/api/docs',
+      health: '/api/v1/health',
+    });
+  });
+
+  app.get('/docs', (_req, res) => res.redirect('/api/docs'));
+
   // Base API v1 Routes
   app.use('/api/v1', routes);
 
