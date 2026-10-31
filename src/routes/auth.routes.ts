@@ -4,6 +4,8 @@ import {
   registerSchema,
   loginSchema,
   fcmTokenSchema,
+  forgotPasswordSchema,
+  resetPasswordSchema,
 } from '@/controllers/auth.controller';
 import { validateRequest } from '@/middlewares/validate.middleware';
 import { authenticateJWT } from '@/middlewares/auth.middleware';
@@ -12,6 +14,17 @@ const router = Router();
 
 router.post('/register', validateRequest({ body: registerSchema }), authController.register);
 router.post('/login', validateRequest({ body: loginSchema }), authController.login);
+router.get('/me', authenticateJWT, authController.getMe);
+router.post(
+  '/forgot-password',
+  validateRequest({ body: forgotPasswordSchema }),
+  authController.forgotPassword
+);
+router.post(
+  '/reset-password',
+  validateRequest({ body: resetPasswordSchema }),
+  authController.resetPassword
+);
 router.post(
   '/fcm-token',
   authenticateJWT,

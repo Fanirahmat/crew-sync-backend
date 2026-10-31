@@ -22,6 +22,16 @@ export const fcmTokenSchema = z.object({
   platform: z.enum(['android', 'ios', 'web']).default('android'),
 });
 
+export const forgotPasswordSchema = z.object({
+  identifier: z.string().min(3, 'Phone number or email is required'),
+});
+
+export const resetPasswordSchema = z.object({
+  identifier: z.string().min(3, 'Phone number or email is required'),
+  token: z.string().min(4, 'Reset token is required'),
+  newPassword: z.string().min(6, 'New password must be at least 6 characters'),
+});
+
 export class AuthController {
   constructor(private service: AuthService = authService) {}
 
@@ -38,6 +48,37 @@ export class AuthController {
     try {
       const result = await this.service.login(req.body);
       sendSuccess(res, result, 'Login successful', 200);
+    } catch (error) {
+      next(error);
+    }
+  };
+
+  getMe = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+    try {
+      if (!req.user?.userId) {
+        throw new UnauthorizedError('Authentication required');
+      }
+
+      const result = await this.service.getMe(req.user.userId);
+      sendSuccess(res, result, 'Current user profile fetched successfully', 200);
+    } catch (error) {
+      next(error);
+    }
+  };
+
+  forgotPassword = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+    try {
+      const result = await this.service.forgotPassword(req.body);
+      sendSuccess(res, result, result.message, 200);
+    } catch (error) {
+      next(error);
+    }
+  };
+
+  resetPassword = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+    try {
+      const result = await this.service.resetPassword(req.body);
+      sendSuccess(res, result, result.message, 200);
     } catch (error) {
       next(error);
     }

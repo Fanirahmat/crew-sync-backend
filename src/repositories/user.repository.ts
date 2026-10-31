@@ -12,19 +12,52 @@ export class UserRepository {
     });
   }
 
-  async findByIdAndOrg(id: string, organizationId: string): Promise<User | null> {
-    return prisma.user.findFirst({
-      where: { id, organizationId },
+  async findByIdWithOrg(id: string) {
+    return prisma.user.findUnique({
+      where: { id },
+      include: {
+        organization: {
+          select: {
+            id: true,
+            name: true,
+            subscriptionTier: true,
+          },
+        },
+      },
     });
   }
 
-  async findByIdentifier(identifier: string): Promise<User | null> {
+  async findByIdAndOrg(id: string, organizationId: string): Promise<User | null> {
+    return prisma.user.findFirst({
+      where: { id, organizationId },
+      include: {
+        organization: {
+          select: {
+            id: true,
+            name: true,
+            subscriptionTier: true,
+          },
+        },
+      },
+    });
+  }
+
+  async findByIdentifier(identifier: string) {
     return prisma.user.findFirst({
       where: {
         OR: [
           { phoneNumber: identifier },
           { email: identifier },
         ],
+      },
+      include: {
+        organization: {
+          select: {
+            id: true,
+            name: true,
+            subscriptionTier: true,
+          },
+        },
       },
     });
   }
@@ -69,6 +102,59 @@ export class UserRepository {
     return prisma.user.findMany({
       where: { organizationId },
       orderBy: { createdAt: 'desc' },
+    });
+  }
+
+  async update(id: string, data: Prisma.UserUpdateInput): Promise<User> {
+    return prisma.user.update({
+      where: { id },
+      data,
+    });
+  }
+
+  async delete(id: string): Promise<User> {
+    return prisma.user.delete({
+      where: { id },
+    });
+  }
+
+  async createPasswordResetToken(userId: string, token: string, expiresAt: Date) {
+    // Invalidate existing tokens for this user first
+    await prisma.passwordResetToken.deleteMany({
+      where: { userId },
+    });
+
+    return prisma.passwordResetToken.create({
+      data: {
+        userId,
+        token,
+        expiresAt,
+      },
+    });
+  }
+
+  async findPasswordResetToken(token: string) {
+    return prisma.passwordResetToken.findUnique({
+      where: { token },
+      include: {
+        user: {
+          include: {
+            organization: true,
+          },
+        },
+      },
+    });
+  }
+
+  async deletePasswordResetToken(id: string) {
+    return prisma.passwordResetToken.delete({
+      where: { id },
+    });
+  }
+
+  async deletePasswordResetTokensByUserId(userId: string) {
+    return prisma.passwordResetToken.deleteMany({
+      where: { userId },
     });
   }
 }

@@ -27,6 +27,10 @@ tags:
     description: Health check and service status
   - name: Auth
     description: Registration, direct credential login, and device FCM tokens
+  - name: Users
+    description: User profiles, password management, and organization crew/staff administration
+  - name: Platform Admin
+    description: SaaS Superadmin dashboard endpoints (platform statistics, client tenant organizations, subscription tier management)
   - name: Events
     description: Event master data, venue spatial coordinates, and crew assignment
   - name: Rundown
@@ -148,6 +152,419 @@ paths:
                       updatedAt:
                         type: string
                         format: date-time
+
+  /api/v1/auth/me:
+    get:
+      tags: [Auth]
+      summary: Get current authenticated user profile
+      description: Returns the active session profile including user roles and tenant organization metadata.
+      security:
+        - BearerAuth: []
+      responses:
+        '200':
+          description: Active profile retrieved
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  data:
+                    $ref: '#/components/schemas/UserProfile'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /api/v1/auth/forgot-password:
+    post:
+      tags: [Auth]
+      summary: Request password reset token / OTP
+      description: Generates a 6-digit numeric reset token for a registered phone number or email address (valid for 15 minutes).
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [identifier]
+              properties:
+                identifier:
+                  type: string
+                  description: Registered phone number or email address
+                  example: '081234567890'
+      responses:
+        '200':
+          description: Reset token generated
+        '404':
+          description: User not found
+
+  /api/v1/auth/reset-password:
+    post:
+      tags: [Auth]
+      summary: Reset password with OTP / token
+      description: Verifies the 6-digit token and updates the user's password.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [identifier, token, newPassword]
+              properties:
+                identifier:
+                  type: string
+                  example: '081234567890'
+                token:
+                  type: string
+                  example: '582910'
+                newPassword:
+                  type: string
+                  format: password
+                  minLength: 6
+                  example: 'NewSecurePassword2026!'
+      responses:
+        '200':
+          description: Password reset successfully
+        '400':
+          description: Invalid or expired token
+
+  /api/v1/users/profile:
+    get:
+      tags: [Users]
+      summary: Get user profile
+      description: Returns full profile of the logged-in user.
+      security:
+        - BearerAuth: []
+      responses:
+        '200':
+          description: User profile
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  data:
+                    $ref: '#/components/schemas/UserProfile'
+    put:
+      tags: [Users]
+      summary: Update user profile
+      description: Updates full name, email, or phone number of the authenticated user.
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                fullName:
+                  type: string
+                  example: Budi Pratama
+                email:
+                  type: string
+                  format: email
+                  example: budi@arthawedding.com
+                phoneNumber:
+                  type: string
+                  example: '081234567890'
+      responses:
+        '200':
+          description: Profile updated successfully
+
+  /api/v1/users/avatar:
+    post:
+      tags: [Users]
+      summary: Upload user profile avatar
+      description: Uploads a profile photo (JPG, PNG, WEBP max 5MB) and attaches it to the user.
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [avatar]
+              properties:
+                avatar:
+                  type: string
+                  format: binary
+      responses:
+        '200':
+          description: Avatar uploaded successfully
+
+  /api/v1/users/change-password:
+    put:
+      tags: [Users]
+      summary: Change password
+      description: Updates password by verifying current password.
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [currentPassword, newPassword]
+              properties:
+                currentPassword:
+                  type: string
+                  format: password
+                  example: OldPassword123!
+                newPassword:
+                  type: string
+                  format: password
+                  minLength: 6
+                  example: NewPassword456!
+      responses:
+        '200':
+          description: Password updated successfully
+        '400':
+          description: Current password incorrect
+
+  /api/v1/users:
+    get:
+      tags: [Users]
+      summary: List all users/crew in organization
+      description: Returns all team members belonging to the current organization. Authorized for OWNER, PLANNER, COORDINATOR.
+      security:
+        - BearerAuth: []
+      responses:
+        '200':
+          description: List of team members
+    post:
+      tags: [Users]
+      summary: Add new crew or coordinator to organization
+      description: Registers a new user directly under the caller's organization. Authorized for OWNER, PLANNER.
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [fullName, phoneNumber]
+              properties:
+                fullName:
+                  type: string
+                  example: Ahmad Fauzi
+                phoneNumber:
+                  type: string
+                  example: '085712345678'
+                email:
+                  type: string
+                  format: email
+                  example: ahmad@arthawedding.com
+                role:
+                  type: string
+                  enum: [CREW, COORDINATOR, PLANNER]
+                  default: CREW
+                password:
+                  type: string
+                  example: CrewPass2026!
+      responses:
+        '201':
+          description: User created and added to organization
+
+  /api/v1/users/{id}:
+    get:
+      tags: [Users]
+      summary: Get user details in organization
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: User details
+        '404':
+          description: User not found
+    patch:
+      tags: [Users]
+      summary: Update user details or role in organization
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                fullName:
+                  type: string
+                role:
+                  type: string
+                  enum: [CREW, COORDINATOR, PLANNER]
+                phoneNumber:
+                  type: string
+                email:
+                  type: string
+      responses:
+        '200':
+          description: User updated
+    delete:
+      tags: [Users]
+      summary: Delete user from organization
+      description: Removes user account from the organization. Authorized for OWNER only. Cannot delete own account.
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: User deleted
+
+  /api/v1/admin/stats:
+    get:
+      tags: [Platform Admin]
+      summary: Get platform overview metrics
+      description: Returns overall platform metrics including total organizations, total users, and active events. Authorized for SUPERADMIN only.
+      security:
+        - BearerAuth: []
+      responses:
+        '200':
+          description: Platform statistics
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  data:
+                    type: object
+                    properties:
+                      totalOrganizations:
+                        type: integer
+                        example: 24
+                      totalUsers:
+                        type: integer
+                        example: 180
+                      totalEvents:
+                        type: integer
+                        example: 45
+                      activeEvents:
+                        type: integer
+                        example: 3
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+  /api/v1/admin/organizations:
+    get:
+      tags: [Platform Admin]
+      summary: List all client organizations
+      description: Returns all tenant vendor organizations with user and event counts. Authorized for SUPERADMIN only.
+      security:
+        - BearerAuth: []
+      responses:
+        '200':
+          description: List of tenant organizations
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  data:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        id:
+                          type: string
+                          format: uuid
+                        name:
+                          type: string
+                          example: Artha Wedding & Event Planner
+                        subscriptionTier:
+                          type: string
+                          example: pro
+                        totalUsers:
+                          type: integer
+                          example: 12
+                        totalEvents:
+                          type: integer
+                          example: 5
+
+  /api/v1/admin/organizations/{id}:
+    get:
+      tags: [Platform Admin]
+      summary: Get organization details with users list
+      description: Returns full profile of a client organization including registered users. Authorized for SUPERADMIN only.
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Organization details
+        '404':
+          description: Organization not found
+
+  /api/v1/admin/organizations/{id}/subscription:
+    patch:
+      tags: [Platform Admin]
+      summary: Update organization subscription tier
+      description: Updates client tier (free, starter, pro, enterprise, suspended). Authorized for SUPERADMIN only.
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [subscriptionTier]
+              properties:
+                subscriptionTier:
+                  type: string
+                  enum: [free, starter, pro, enterprise, suspended]
+                  example: enterprise
+      responses:
+        '200':
+          description: Subscription updated successfully
+        '400':
+          description: Invalid tier
 
   /api/v1/events:
     get:
@@ -771,6 +1188,50 @@ components:
                 email:
                   type: string
                   example: planner@arthaworganizer.com
+
+    UserProfile:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        fullName:
+          type: string
+          example: Budi Pratama
+        phoneNumber:
+          type: string
+          example: '081234567890'
+        email:
+          type: string
+          format: email
+          nullable: true
+          example: budi@arthawedding.com
+        avatarUrl:
+          type: string
+          nullable: true
+          example: /uploads/avatar-1792079616-123.jpg
+        role:
+          type: string
+          enum: [OWNER, PLANNER, COORDINATOR, CREW]
+          example: PLANNER
+        organization:
+          type: object
+          properties:
+            id:
+              type: string
+              format: uuid
+            name:
+              type: string
+              example: Artha Wedding & Event Planner
+            subscriptionTier:
+              type: string
+              example: free
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
 
     FcmTokenRequest:
       type: object

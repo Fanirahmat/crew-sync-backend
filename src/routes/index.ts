@@ -1,5 +1,7 @@
 import { Router } from 'express';
 import authRoutes from '@/routes/auth.routes';
+import userRoutes from '@/routes/user.routes';
+import adminRoutes from '@/routes/admin.routes';
 import eventRoutes from '@/routes/event.routes';
 import logisticsRoutes from '@/routes/logistics.routes';
 
@@ -16,6 +18,12 @@ router.get('/health', (_req, res) => {
 
 // Authentication routes
 router.use('/auth', authRoutes);
+
+// User & Profile Management routes
+router.use('/users', userRoutes);
+
+// SaaS Platform Administration routes (SUPERADMIN)
+router.use('/admin', adminRoutes);
 
 // Events & Crew routes
 router.use('/events', eventRoutes);

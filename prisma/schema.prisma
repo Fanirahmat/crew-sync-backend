@@ -8,6 +8,7 @@ generator client {
 }
 
 enum Role {
+  SUPERADMIN
   OWNER
   PLANNER
   COORDINATOR
@@ -70,19 +71,34 @@ model User {
   fullName       String
   phoneNumber    String
   email          String?
+  avatarUrl      String?
   passwordHash   String
   role           Role     @default(CREW)
   createdAt      DateTime @default(now())
   updatedAt      DateTime @updatedAt
 
-  organization  Organization      @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  deviceTokens  UserDeviceToken[]
-  eventCrews    EventCrew[]
-  picRundowns   RundownItem[]
-  verifiedItems ChecklistItem[]
+  organization        Organization         @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  deviceTokens        UserDeviceToken[]
+  eventCrews          EventCrew[]
+  picRundowns         RundownItem[]
+  verifiedItems       ChecklistItem[]
+  passwordResetTokens PasswordResetToken[]
 
   @@unique([organizationId, phoneNumber])
   @@map("users")
+}
+
+model PasswordResetToken {
+  id        String   @id @default(uuid())
+  userId    String
+  token     String   @unique
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([token])
+  @@map("password_reset_tokens")
 }
 
 model UserDeviceToken {
